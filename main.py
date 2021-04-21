@@ -18,6 +18,8 @@ from sklearn.metrics import r2_score
 import matplotlib.pyplot as plt
 import pickle
 import mlflow
+from mlflow.tracking import MlflowClient
+mlflow.set_tracking_uri('http://training.itu.dk:5000/')
 mlflow.set_experiment('timp1')
 plt.style.use('seaborn')
 
@@ -114,11 +116,23 @@ def train_new(x,y):
     #print("Mean cross-validated score of estimator:\t",round(grid.best_score_,2))
     return pipeline
 
+
+def eval_production_model(x_test,y_test):
+    try:
+        model_uri = 'models:/Tim_DT/Production'
+        model = mlflow.pyfunc.load_model(model_uri)
+        pred = model.predict(x_test)
+        r2 = r2_score(y_test,pred)
+        print('DEPLOYED MODEL SCORE: %s' % r2)
+        return r2
+    except:
+        return 0
+
 ########
 # MAIN #
 ########
 def main():
-    with mlflow.start_run():
+    with mlflow.start_run() as run:
 
         ### HYPER PARAMS ###
         test_size = 0.30
@@ -137,11 +151,22 @@ def main():
         ### MODEL TRAINING ###
         x_train,x_test,y_train,y_test = train_test_split(x,y,test_size=test_size,shuffle=False)
         clf = train_new(x_train,y_train)
-        mlflow.sklearn.log_model(clf,'model')
         
         ### EVALUATING  ###
         r2 = r2_score(y_test,clf.predict(x_test))
         mlflow.log_metric('r2',r2)
+        print('NEW MODEL SCORE: %s' % r2)
+
+        ### COMPARE TO CURRENT PRODUCTION MODEL ###
+        score_prod = eval_production_model(x_test,y_test)
+        if r2 > score_prod+0.01:
+            #make new model to production model
+            mlflow.sklearn.log_model(clf,'model',registered_model_name='Tim_DT')
+            client = MlflowClient()
+            reg_model = client.get_latest_versions('Tim_DT',stages = ['None'])[0]
+            client.transition_model_version_stage('Tim_DT',reg_model.version,stage='Production',archive_existing_versions=True)
+        else: # just log the model but don't register it
+            mlflow.sklearn.log_model(clf,'model')
 
 
 if __name__ == "__main__":
