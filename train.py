@@ -15,13 +15,8 @@ from sklearn.base import BaseEstimator,TransformerMixin
 from sklearn.metrics import r2_score
 
 # Other
-import matplotlib.pyplot as plt
 import pickle
 import mlflow
-from mlflow.tracking import MlflowClient
-mlflow.set_tracking_uri('http://training.itu.dk:5000/')
-mlflow.set_experiment('timp1')
-plt.style.use('seaborn')
 
 ###############################################
 # Transformer class for custom transformation #
@@ -117,30 +112,13 @@ def train_new(x,y):
     return pipeline
 
 
-def eval_production_model(x_test,y_test):
-    try:
-        model_uri = 'models:/Tim_DT/Production'
-        model = mlflow.pyfunc.load_model(model_uri)
-        pred = model.predict(x_test)
-        r2 = r2_score(y_test,pred)
-        print('DEPLOYED MODEL SCORE: %s' % r2)
-        return r2
-    except:
-        return 0
-
 ########
 # MAIN #
 ########
-def main():
-    with mlflow.start_run() as run:
+def main(test_size=0.3,days=120,time_span=60):
+    # Room for altering parameters when testing things
 
-        ### HYPER PARAMS ###
-        test_size = 0.30
-        # Days to 'look into' the past for train-test data
-        days = 120
-        # Time span to look for when down sampling, 
-        # e.g. 60 min prior to 60 min after, every third hour
-        time_span = 60
+    with mlflow.start_run() as run:
         mlflow.log_params({'test_size':test_size,
                           'days': days,
                           'time_span':time_span})
@@ -157,16 +135,9 @@ def main():
         mlflow.log_metric('r2',r2)
         print('NEW MODEL SCORE: %s' % r2)
 
-        ### COMPARE TO CURRENT PRODUCTION MODEL ###
-        score_prod = eval_production_model(x_test,y_test)
-        if r2 > score_prod+0.01:
-            #make new model to production model
-            mlflow.sklearn.log_model(clf,'model',registered_model_name='Tim_DT')
-            client = MlflowClient()
-            reg_model = client.get_latest_versions('Tim_DT',stages = ['None'])[0]
-            client.transition_model_version_stage('Tim_DT',reg_model.version,stage='Production',archive_existing_versions=True)
-        else: # just log the model but don't register it
-            mlflow.sklearn.log_model(clf,'model')
+        mlflow.sklearn.log_model(clf,'model')
+
+        return clf, r2, x_test, y_test, run.info.run_id
 
 
 if __name__ == "__main__":

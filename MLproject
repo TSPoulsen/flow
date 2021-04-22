@@ -1,0 +1,7 @@
+name: flow
+
+conda_env: flow.yaml
+
+entry_points:
+    main:
+        command: python train.py
